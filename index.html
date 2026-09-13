@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Speak & See</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+  :root {
+    --bg: #10131a;
+    --panel: #171c26;
+    --line: #2a3142;
+    --ink: #ede8de;
+    --ink-dim: #8b92a0;
+    --accent: #e8a33d;
+    --accent-dim: #8a6423;
+    --rec: #c24b3a;
+  }
+
+* { box-sizing: border-box; }
+body {
+margin: 0;
+background: var(--bg);
+color: var(--ink);
+font-family: 'IBM Plex Sans', sans-serif;
+min-height: 100vh;
+display: flex;
+align-items: center;
+justify-content: center;
+padding: 32px 16px;
+}
+.app { width: 100%; max-width: 720px; }
+header {
+display: flex;
+align-items: baseline;
+justify-content: space-between;
+margin-bottom: 28px;
+}
+h1 { font-size: 26px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+.status { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--ink-dim); display: flex; align-items: center; gap: 7px; }
+.rec-dot {
+width: 8px;
+height: 8px;
+border-radius: 50%;
+background: var(--ink-dim);
+display: inline-block;
+}
+.status.live .rec-dot {
+background: var(--rec);
+animation: pulse 1.2s ease-in-out infinite;
+}
+@keyframes pulse {
+0%, 100% { opacity: 1; }
+50% { opacity: 0.35; }
+}
+.status.live { color: var(--rec); }
+.stage {
+background: var(--panel);
+border: 1px solid var(--line);
+border-radius: 3px;
+padding: 24px;
+}
+canvas {
+width: 100%;
+height: 120px;
+display: block;
+border-radius: 2px;
+background: #0b0e14;
+border: 1px solid var(--line);
+}
+.controls { display: flex; align-items: center; gap: 14px; margin-top: 20px; }
+button {
+font-family: 'IBM Plex Sans', sans-serif;
+font-size: 14px;
+font-weight: 600;
+padding: 11px 20px;
+border-radius: 3px;
+border: 1px solid var(--accent);
+background: transparent;
+color: var(--accent);
+cursor: pointer;
+transition: background 0.15s, color 0.15s;
+letter-spacing: 0.01em;
+}
+button:hover { background: rgba(232,163,61,0.1); }
+button.recording {
+border-color: var(--rec);
+color: var(--rec);
+background: rgba(194,75,58,0.1);
+}
+button:disabled { opacity: 0.35; cursor: not-allowed; }
+.timer {
+font-family: 'IBM Plex Mono', monospace;
+font-size: 13px;
+color: var(--ink-dim);
+padding: 4px 9px;
+border: 1px solid var(--line);
+border-radius: 2px;
+}
+.captions { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 20px; }
+.captions-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--ink-dim); margin-bottom: 10px; text-transform: lowercase; }
+.caption-line { font-family: 'IBM Plex Mono', monospace; font-size: 19px; line-height: 1.6; min-height: 66px; }
+.caption-final { color: var(--ink); }
+.caption-interim { color: var(--ink-dim); }
+.empty-hint { color: var(--ink-dim); font-size: 14px; font-family: 'IBM Plex Sans', sans-serif; }
+.accurate-section { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 20px; }
+.accurate-btn { width: 100%; }
+.accurate-btn.loading { opacity: 0.6; cursor: wait; }
+.accurate-result { margin-top: 16px; font-family: 'IBM Plex Mono', monospace; font-size: 18px; line-height: 1.6; color: var(--ink); }
+.accurate-error { margin-top: 14px; font-size: 13px; color: var(--rec); }
+.grammar-section { margin-top: 16px; }
+.grammar-btn { width: 100%; border-color: var(--accent-dim); color: var(--accent-dim); }
+.grammar-btn:not(:disabled):hover { color: var(--accent); border-color: var(--accent); background: rgba(232,163,61,0.1); }
+.grammar-result { margin-top: 16px; font-family: 'IBM Plex Mono', monospace; font-size: 18px; line-height: 1.6; color: var(--accent); }
+.manual-input {
+  width: 100%;
+  background: #0b0e14;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 12px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 14px;
+  resize: vertical;
+}
+.manual-input:focus { outline: none; border-color: var(--accent-dim); }
+.edit-hint {
+  font-size: 11px;
+  color: var(--ink-dim);
+  margin-top: 6px;
+  font-family: 'IBM Plex Mono', monospace;
+}
+.unsupported {
+margin-top: 20px;
+padding: 14px 16px;
+border: 1px solid var(--rec);
+border-radius: 3px;
+color: var(--rec);
+font-size: 14px;
+display: none;
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header>
+    <h1>Speak &amp; See</h1>
+    <div class="status" id="status"><span class="rec-dot"></span>idle</div>
+  </header>
+  <div class="stage">
+    <canvas id="wave" width="1280" height="240"></canvas>
+    <div class="controls">
+      <button id="toggleBtn">Start speaking</button>
+      <span class="timer" id="timer">00:00</span>
+    </div>
+    <div class="captions">
+      <div class="captions-label">live captions</div>
+      <div class="caption-line" id="captionLine">
+        <span class="empty-hint">Your words will appear here as you speak.</span>
+      </div>
+    </div>
+    <div class="unsupported" id="unsupported">
+      Live captions need Chrome or Edge on desktop or Android — this browser doesn't support them. The waveform will still work.
+    </div>
+    <div class="accurate-section">
+      <div class="captions-label">edit before fixing (correct any misheard words here)</div>
+      <textarea id="liveEditBox" rows="3" class="manual-input" placeholder="After you stop speaking, your captured text will appear here for you to edit."></textarea>
+      <div class="edit-hint">Fix grammar mistakes uses whatever is in this box, not the raw captions above.</div>
+      <div class="grammar-section">
+        <button id="grammarBtn" class="accurate-btn grammar-btn" disabled>Fix grammar mistakes</button>
+        <div class="grammar-result" id="grammarResult"></div>
+      </div>
+    </div>
+    <div class="accurate-section">
+      <div class="captions-label">type text to test (no mic needed)</div>
+      <textarea id="manualInput" rows="3" class="manual-input" placeholder="Type a sentence here, e.g. My name is Jenny. I am a boy."></textarea>
+      <button id="manualBtn" class="accurate-btn grammar-btn" style="margin-top:10px;">Fix grammar (typed text)</button>
+      <div class="grammar-result" id="manualResult"></div>
+      <div class="accurate-error" id="manualError"></div>
+    </div>
+  </div>
+</div>
+<script>
+  function byId(id) { return document.getElementById(id); }
+
+  const toggleBtn = byId('toggleBtn');
+  const statusEl = byId('status');
+  const timerEl = byId('timer');
+  const captionLine = byId('captionLine');
+  const unsupportedEl = byId('unsupported');
+  const canvas = byId('wave');
+  const ctx = canvas ? canvas.getContext('2d') : null;
+  const liveEditBox = byId('liveEditBox');
+  const grammarBtn = byId('grammarBtn');
+  const grammarResult = byId('grammarResult');
+  const manualInput = byId('manualInput');
+  const manualBtn = byId('manualBtn');
+  const manualResult = byId('manualResult');
+  const manualError = byId('manualError');
+
+  let audioCtx, analyser, source, stream, dataArray, rafId;
+  let recognizer, recognizing = false;
+  let finalText = '';
+  let startTime, timerInterval;
+  let forceRestartInterval;
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition && unsupportedEl) {
+    unsupportedEl.style.display = 'block';
+  }
+
+  function drawIdle() {
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = '#2a3142';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, canvas.height / 2);
+    ctx.lineTo(canvas.width, canvas.height / 2);
+    ctx.stroke();
+  }
+  drawIdle();
+
+  function drawFrame() {
+    if (!ctx || !analyser) return;
+    analyser.getByteTimeDomainData(dataArray);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#e8a33d';
+    ctx.beginPath();
+    const sliceWidth = canvas.width / dataArray.length;
+    let x = 0;
+    for (let i = 0; i < dataArray.length; i++) {
+      const v = dataArray[i] / 128.0;
+      const y = (v * canvas.height) / 2;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+      x += sliceWidth;
+    }
+    ctx.lineTo(canvas.width, canvas.height / 2);
+    ctx.stroke();
+    rafId = requestAnimationFrame(drawFrame);
+  }
+
+  function updateTimer() {
+    if (!timerEl) return;
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
+    const s = String(elapsed % 60).padStart(2, '0');
+    timerEl.textContent = `${m}:${s}`;
+  }
+
+  function setupRecognizer() {
+    recognizer = new SpeechRecognition();
+    recognizer.continuous = true;
+    recognizer.interimResults = true;
+    recognizer.lang = 'en-US';
+    recognizer.maxAlternatives = 1;
+    recognizer.onresult = (event) => {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalText += transcript + ' ';
+        } else {
+          interim += transcript;
+        }
+      }
+      if (captionLine) {
+        captionLine.innerHTML =
+          `<span class="caption-final">${finalText}</span><span class="caption-interim">${interim}</span>`;
+      }
+    };
+    recognizer.onerror = (e) => {
+      console.warn('Speech recognition error', e.error);
+    };
+    recognizer.onend = () => {
+      restartRecognizer();
+    };
+  }
+
+  function restartRecognizer() {
+    if (!recognizing) return;
+    setupRecognizer();
+    try {
+      recognizer.start();
+    } catch (e) {
+      setTimeout(restartRecognizer, 150);
+    }
+  }
+
+  function startForceRestart() {
+    stopForceRestart();
+    forceRestartInterval = setInterval(() => {
+      if (recognizing && recognizer) {
+        try { recognizer.stop(); } catch (e) { /* ignore */ }
+      }
+    }, 20000);
+  }
+
+  function stopForceRestart() {
+    if (forceRestartInterval) {
+      clearInterval(forceRestartInterval);
+      forceRestartInterval = null;
+    }
+  }
+
+  async function start() {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    source = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 2048;
+    dataArray = new Uint8Array(analyser.fftSize);
+    source.connect(analyser);
+    drawFrame();
+    finalText = '';
+    if (captionLine) {
+      captionLine.innerHTML = '<span class="caption-final"></span><span class="caption-interim"></span>';
+    }
+    if (liveEditBox) liveEditBox.value = '';
+    if (grammarResult) grammarResult.textContent = '';
+    if (grammarBtn) grammarBtn.disabled = true;
+    if (SpeechRecognition) {
+      setupRecognizer();
+      recognizing = true;
+      recognizer.start();
+      startForceRestart();
+    }
+    startTime = Date.now();
+    timerInterval = setInterval(updateTimer, 250);
+    if (toggleBtn) {
+      toggleBtn.textContent = 'Stop';
+      toggleBtn.classList.add('recording');
+    }
+    if (statusEl) {
+      statusEl.innerHTML = '<span class="rec-dot"></span>recording';
+      statusEl.classList.add('live');
+    }
+  }
+
+  function stop() {
+    if (rafId) cancelAnimationFrame(rafId);
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    if (audioCtx) audioCtx.close();
+    recognizing = false;
+    stopForceRestart();
+    if (recognizer) recognizer.stop();
+    clearInterval(timerInterval);
+    drawIdle();
+    if (toggleBtn) {
+      toggleBtn.textContent = 'Start speaking';
+      toggleBtn.classList.remove('recording');
+    }
+    if (statusEl) {
+      statusEl.innerHTML = '<span class="rec-dot"></span>idle';
+      statusEl.classList.remove('live');
+    }
+    if (captionLine && !finalText.trim() && !captionLine.querySelector('.caption-interim')?.textContent) {
+      captionLine.innerHTML = '<span class="empty-hint">Your words will appear here as you speak.</span>';
+    }
+    if (finalText.trim()) {
+      if (liveEditBox) liveEditBox.value = finalText.trim();
+      if (grammarBtn) grammarBtn.disabled = false;
+    }
+  }
+
+  if (grammarBtn) {
+    grammarBtn.addEventListener('click', async () => {
+      const editedText = liveEditBox ? liveEditBox.value.trim() : finalText.trim();
+      if (!editedText) return;
+      if (grammarResult) grammarResult.textContent = '';
+      grammarBtn.disabled = true;
+      grammarBtn.classList.add('loading');
+      grammarBtn.textContent = 'Fixing grammar… (running on your Mac)';
+      try {
+        const response = await fetch('http://localhost:5005/fix-grammar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: editedText })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Request failed');
+        if (grammarResult) grammarResult.textContent = data.text;
+      } catch (err) {
+        if (grammarResult) grammarResult.textContent = `Error: ${err.message}. Make sure backend.py is running.`;
+      } finally {
+        grammarBtn.disabled = false;
+        grammarBtn.classList.remove('loading');
+        grammarBtn.textContent = 'Fix grammar mistakes';
+      }
+    });
+  }
+
+  if (manualBtn) {
+    manualBtn.addEventListener('click', async () => {
+      const text = manualInput ? manualInput.value.trim() : '';
+      if (!text) return;
+      if (manualResult) manualResult.textContent = '';
+      if (manualError) manualError.textContent = '';
+      manualBtn.disabled = true;
+      manualBtn.textContent = 'Fixing grammar…';
+      try {
+        const response = await fetch('http://localhost:5005/fix-grammar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Request failed');
+        if (manualResult) manualResult.textContent = data.text;
+      } catch (err) {
+        if (manualError) manualError.textContent = `Error: ${err.message}. Make sure backend.py is running.`;
+      } finally {
+        manualBtn.disabled = false;
+        manualBtn.textContent = 'Fix grammar (typed text)';
+      }
+    });
+  }
+
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', async () => {
+      if (toggleBtn.classList.contains('recording')) {
+        stop();
+      } else {
+        toggleBtn.disabled = true;
+        try {
+          await start();
+        } catch (err) {
+          alert('Could not access your microphone. Please allow microphone access and try again.');
+        }
+        toggleBtn.disabled = false;
+      }
+    });
+  }
+</script>
+</body>
+</html>
