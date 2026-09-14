@@ -5,6 +5,7 @@ import tempfile
 import os
 import re
 import requests
+from translate import Translator
 
 app = Flask(__name__)
 CORS(app)
@@ -201,6 +202,21 @@ def fix_grammar_route():
         corrected = fix_grammar_verified(no_filler)
         final_text = correct_known_name_gender(corrected)
         return jsonify({"text": final_text})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/translate", methods=["POST"])
+def translate_route():
+    data = request.get_json(force=True)
+    if not data or "text" not in data:
+        return jsonify({"error": "No text provided"}), 400
+    text = data["text"].strip()
+    target = data.get("target", "te").strip()
+    if not text:
+        return jsonify({"error": "No text provided"}), 400
+    try:
+        translated = Translator(to_lang=target).translate(text)
+        return jsonify({"text": translated})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
