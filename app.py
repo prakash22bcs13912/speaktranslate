@@ -5,8 +5,7 @@ import io
 from pydub import AudioSegment
 import numpy as np
 import matplotlib.pyplot as plt
-import urllib.request
-import json
+import requests
 
 st.set_page_config(page_title="Speak & See", page_icon="🎙️")
 
@@ -27,7 +26,12 @@ audio = mic_recorder(
     key="recorder",
 )
 
-if audio:
+if "last_audio_id" not in st.session_state:
+    st.session_state.last_audio_id = None
+
+if audio and audio["id"] != st.session_state.last_audio_id:
+    st.session_state.last_audio_id = audio["id"]
+
     st.audio(audio["bytes"])
 
     audio_segment = AudioSegment.from_file(io.BytesIO(audio["bytes"]))
@@ -42,27 +46,26 @@ if audio:
     ax.axis("off")
     st.pyplot(fig)
 
-    if st.button("Show Subtitles"):
-        wav_io = io.BytesIO()
-        audio_segment.export(wav_io, format="wav")
-        wav_io.seek(0)
+    wav_io = io.BytesIO()
+    audio_segment.export(wav_io, format="wav")
+    wav_io.seek(0)
 
-        recognizer = sr.Recognizer()
+    recognizer = sr.Recognizer()
 
-        with sr.AudioFile(wav_io) as source:
-            audio_data = recognizer.record(source)
+    with sr.AudioFile(wav_io) as source:
+        audio_data = recognizer.record(source)
 
-        try:
-            text = recognizer.recognize_google(audio_data)
-            st.session_state.transcription = text
-            st.session_state.edit_box = text
-            st.rerun()
+    try:
+        text = recognizer.recognize_google(audio_data)
+        st.session_state.transcription = text
+        st.session_state.edit_box = text
+        st.rerun()
 
-        except sr.UnknownValueError:
-            st.warning("Could not understand the audio. Try speaking clearly.")
+    except sr.UnknownValueError:
+        st.warning("Could not understand the audio. Try speaking clearly.")
 
-        except sr.RequestError as e:
-            st.error(f"Could not reach Google's speech service: {e}")
+    except sr.RequestError as e:
+        st.error(f"Could not reach Google's speech service: {e}")
 
 st.subheader("live captions")
 st.caption("Your words will appear here as you speak.")
@@ -77,28 +80,49 @@ st.caption(
     "Fix grammar mistakes uses whatever is in this box, not the raw captions above."
 )
 
+
+def fix_grammar(text: str) -> str:
+    """Fix grammar using LanguageTool's public API (no local server needed)."""
+
+    cleaned = text.strip()
+    if cleaned:
+        cleaned = cleaned[0].upper() + cleaned[1:]
+        if cleaned[-1] not in ".!?":
+            cleaned += "."
+
+    response = requests.post(
+        "https://api.languagetool.org/v2/check",
+        data={
+            "text": cleaned,
+            "language": "en-US",
+            "level": "picky",
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    matches = response.json().get("matches", [])
+
+    corrected = cleaned
+    for match in sorted(matches, key=lambda m: m["offset"], reverse=True):
+        if match["replacements"]:
+            start = match["offset"]
+            end = start + match["length"]
+            replacement = match["replacements"][0]["value"]
+            corrected = corrected[:start] + replacement + corrected[end:]
+
+    return corrected
+
+
 if st.button("Fix grammar mistakes"):
     text_to_fix = st.session_state.edit_box.strip()
 
     if not text_to_fix:
         st.warning("Please record or enter some text first.")
     else:
-        payload = json.dumps({"text": text_to_fix}).encode("utf-8")
-
-        req = urllib.request.Request(
-            "http://127.0.0.1:5005/fix-grammar",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-
         try:
-            with urllib.request.urlopen(req, timeout=30) as response:
-                result = json.loads(response.read().decode("utf-8"))
-
+            corrected = fix_grammar(text_to_fix)
             st.subheader("corrected result")
-            st.write(result.get("text", text_to_fix))
-
+            st.write(corrected)
         except Exception as e:
             st.error(f"Grammar correction error: {e}")
 
@@ -116,21 +140,9 @@ if st.button("Fix grammar (typed text)"):
     if not text_to_fix:
         st.warning("Please type some text first.")
     else:
-        payload = json.dumps({"text": text_to_fix}).encode("utf-8")
-
-        req = urllib.request.Request(
-            "http://127.0.0.1:5005/fix-grammar",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-
         try:
-            with urllib.request.urlopen(req, timeout=30) as response:
-                result = json.loads(response.read().decode("utf-8"))
-
+            corrected = fix_grammar(text_to_fix)
             st.subheader("corrected result")
-            st.write(result.get("text", text_to_fix))
-
+            st.write(corrected)
         except Exception as e:
             st.error(f"Grammar correction error: {e}")
