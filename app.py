@@ -1,15 +1,25 @@
 import streamlit as st
 from streamlit_mic_recorder import mic_recorder
-import speech_recognition as sr
 import io
+import os
+import tempfile
 from pydub import AudioSegment
 import numpy as np
 import matplotlib.pyplot as plt
 import requests
+import whisper
 
 st.set_page_config(page_title="Speak & See", page_icon="🎙️")
 
 st.title("Speak & See")
+
+
+@st.cache_resource
+def load_whisper_model():
+    return whisper.load_model("medium")
+
+
+whisper_model = load_whisper_model()
 
 if "transcription" not in st.session_state:
     st.session_state.transcription = ""
@@ -46,26 +56,37 @@ if audio and audio["id"] != st.session_state.last_audio_id:
     ax.axis("off")
     st.pyplot(fig)
 
-    wav_io = io.BytesIO()
-    audio_segment.export(wav_io, format="wav")
-    wav_io.seek(0)
-
-    recognizer = sr.Recognizer()
-
-    with sr.AudioFile(wav_io) as source:
-        audio_data = recognizer.record(source)
-
+    tmp_path = None
     try:
-        text = recognizer.recognize_google(audio_data)
-        st.session_state.transcription = text
-        st.session_state.edit_box = text
-        st.rerun()
+        whisper_ready_audio = audio_segment.set_frame_rate(16000).set_channels(1)
 
-    except sr.UnknownValueError:
-        st.warning("Could not understand the audio. Try speaking clearly.")
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            whisper_ready_audio.export(tmp.name, format="wav")
+            tmp_path = tmp.name
 
-    except sr.RequestError as e:
-        st.error(f"Could not reach Google's speech service: {e}")
+        with st.spinner("Transcribing with Whisper..."):
+            result = whisper_model.transcribe(
+                tmp_path,
+                language="en",
+                condition_on_previous_text=False,
+                no_speech_threshold=0.6,
+            )
+            text = result["text"].strip()
+
+        if text:
+            st.session_state.transcription = text
+            st.session_state.edit_box = text
+            st.rerun()
+        else:
+            st.warning("Could not understand the audio. Try speaking clearly.")
+
+    except Exception as e:
+        st.error(f"Speech recognition error: {e}")
+
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
 
 st.subheader("live captions")
 st.caption("Your words will appear here as you speak.")
@@ -84,33 +105,50 @@ st.caption(
 def fix_grammar(text: str) -> str:
     """Fix grammar using LanguageTool's free public API (no cost, no API key needed)."""
 
-    cleaned = text.strip()
-    if cleaned:
-        cleaned = cleaned[0].upper() + cleaned[1:]
-        if cleaned[-1] not in ".!?":
-            cleaned += "."
+    def clean_and_correct(input_text: str) -> str:
+        cleaned = input_text.strip()
+        if cleaned:
+            cleaned = cleaned[0].upper() + cleaned[1:]
+            if cleaned[-1] not in ".!?":
+                cleaned += "."
 
-    response = requests.post(
-        "https://api.languagetool.org/v2/check",
-        data={
-            "text": cleaned,
-            "language": "en-US",
-            "level": "picky",
-        },
-        timeout=30,
-    )
-    response.raise_for_status()
-    matches = response.json().get("matches", [])
+        response = requests.post(
+            "https://api.languagetool.org/v2/check",
+            data={
+                "text": cleaned,
+                "language": "en-US",
+                "level": "picky",
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+        matches = response.json().get("matches", [])
 
-    corrected = cleaned
-    for match in sorted(matches, key=lambda m: m["offset"], reverse=True):
-        if match["replacements"]:
-            start = match["offset"]
-            end = start + match["length"]
-            replacement = match["replacements"][0]["value"]
-            corrected = corrected[:start] + replacement + corrected[end:]
+        corrected = cleaned
+        for match in sorted(matches, key=lambda m: m["offset"], reverse=True):
+            if match["replacements"]:
+                start = match["offset"]
+                end = start + match["length"]
+                replacement = match["replacements"][0]["value"]
+                corrected = corrected[:start] + replacement + corrected[end:]
 
-    return corrected
+        return corrected
+
+    corrected = clean_and_correct(text)
+
+    original_words = text.split()
+    fixed_words = corrected.split()
+    for i, word in enumerate(fixed_words):
+        bare = word.strip(".,!?")
+        if bare.isupper() and len(bare) > 1:
+            was_upper_originally = any(
+                w.strip(".,!?").isupper() and w.strip(".,!?") == bare
+                for w in original_words
+            )
+            if not was_upper_originally:
+                fixed_words[i] = word.capitalize()
+
+    return " ".join(fixed_words)
 
 
 if st.button("Fix grammar mistakes"):
