@@ -1,4 +1,6 @@
 streamlit-mic-recorder
+SpeechRecognition
 pydub
+numpy
 matplotlib
-openai-whisper
+requests
