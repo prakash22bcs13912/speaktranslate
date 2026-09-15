@@ -82,7 +82,7 @@ st.caption(
 
 
 def fix_grammar(text: str) -> str:
-    """Fix grammar using LanguageTool's public API (no local server needed)."""
+    """Fix grammar using LanguageTool's free public API (no cost, no API key needed)."""
 
     cleaned = text.strip()
     if cleaned:
