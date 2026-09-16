@@ -1,5 +1,12 @@
-venv/
 __pycache__/
+.streamlit/secrets.toml
 *.pyc
 backend.log
 frontend.log
+venv/
+app.py.before-*
+app_new.py
+app_whisper.py
+backend.py.before-*
+streamlit_log.txt
+test_grammar.py
