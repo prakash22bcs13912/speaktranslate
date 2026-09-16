@@ -3,14 +3,12 @@ from streamlit_mic_recorder import mic_recorder
 import io
 import os
 import tempfile
-import shutil
+import imageio_ffmpeg
 from pydub import AudioSegment
 
-_ffmpeg_path = shutil.which("ffmpeg") or "/usr/bin/ffmpeg"
-_ffprobe_path = shutil.which("ffprobe") or "/usr/bin/ffprobe"
+_ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 AudioSegment.converter = _ffmpeg_path
 AudioSegment.ffmpeg = _ffmpeg_path
-AudioSegment.ffprobe = _ffprobe_path
 import numpy as np
 import matplotlib.pyplot as plt
 import requests
@@ -48,7 +46,7 @@ if audio and audio["id"] != st.session_state.last_audio_id:
 
     st.audio(audio["bytes"])
 
-    audio_segment = AudioSegment.from_file(io.BytesIO(audio["bytes"]))
+    audio_segment = AudioSegment.from_file(io.BytesIO(audio["bytes"]), format="webm", codec="opus")
 
     samples = np.array(audio_segment.get_array_of_samples())
 
