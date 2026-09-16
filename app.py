@@ -7,20 +7,13 @@ from pydub import AudioSegment
 import numpy as np
 import matplotlib.pyplot as plt
 import requests
-import whisper
+import speech_recognition as sr
 import google.generativeai as genai
 
 st.set_page_config(page_title="Speak & See", page_icon="🎙️")
 
 st.title("Speak & See")
 
-
-@st.cache_resource
-def load_whisper_model():
-    return whisper.load_model("medium")
-
-
-whisper_model = load_whisper_model()
 
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 gemini_model = genai.GenerativeModel("gemini-3.5-flash-lite")
@@ -62,20 +55,18 @@ if audio and audio["id"] != st.session_state.last_audio_id:
 
     tmp_path = None
     try:
-        whisper_ready_audio = audio_segment.set_frame_rate(16000).set_channels(1)
+        audio_for_sr = audio_segment.set_frame_rate(16000).set_channels(1)
 
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            whisper_ready_audio.export(tmp.name, format="wav")
+            audio_for_sr.export(tmp.name, format="wav")
             tmp_path = tmp.name
 
-        with st.spinner("Transcribing with Whisper..."):
-            result = whisper_model.transcribe(
-                tmp_path,
-                language="en",
-                condition_on_previous_text=False,
-                no_speech_threshold=0.6,
-            )
-            text = result["text"].strip()
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(tmp_path) as source:
+            audio_data = recognizer.record(source)
+
+        with st.spinner("Transcribing..."):
+            text = recognizer.recognize_google(audio_data, language="en-IN")
 
         if text:
             st.session_state.transcription = text
@@ -84,6 +75,8 @@ if audio and audio["id"] != st.session_state.last_audio_id:
         else:
             st.warning("Could not understand the audio. Try speaking clearly.")
 
+    except sr.UnknownValueError:
+        st.warning("Could not understand the audio. Try speaking clearly.")
     except Exception as e:
         st.error(f"Speech recognition error: {e}")
 

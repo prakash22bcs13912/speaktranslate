@@ -4,5 +4,4 @@ pydub
 numpy
 matplotlib
 requests
-openai-whisper
 google-generativeai
