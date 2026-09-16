@@ -3,12 +3,21 @@ from streamlit_mic_recorder import mic_recorder
 import io
 import os
 import tempfile
+import subprocess
+import wave
 import imageio_ffmpeg
-from pydub import AudioSegment
 
 _ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
-AudioSegment.converter = _ffmpeg_path
-AudioSegment.ffmpeg = _ffmpeg_path
+
+def convert_to_wav_bytes(input_bytes):
+    process = subprocess.Popen(
+        [_ffmpeg_path, "-i", "pipe:0", "-f", "wav", "-ar", "16000", "-ac", "1", "pipe:1"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    out, err = process.communicate(input=input_bytes)
+    if process.returncode != 0:
+        raise RuntimeError(f"ffmpeg failed: {err.decode(errors='ignore')[-500:]}")
+    return out
 import numpy as np
 import matplotlib.pyplot as plt
 import requests
@@ -46,12 +55,11 @@ if audio and audio["id"] != st.session_state.last_audio_id:
 
     st.audio(audio["bytes"])
 
-    audio_segment = AudioSegment.from_file(io.BytesIO(audio["bytes"]), format="webm", codec="opus")
+    wav_bytes = convert_to_wav_bytes(audio["bytes"])
 
-    samples = np.array(audio_segment.get_array_of_samples())
-
-    if audio_segment.channels == 2:
-        samples = samples[::2]
+    with wave.open(io.BytesIO(wav_bytes), 'rb') as wf:
+        frames = wf.readframes(wf.getnframes())
+        samples = np.frombuffer(frames, dtype=np.int16)
 
     fig, ax = plt.subplots(figsize=(10, 2))
     ax.plot(samples, linewidth=0.5)
@@ -60,10 +68,8 @@ if audio and audio["id"] != st.session_state.last_audio_id:
 
     tmp_path = None
     try:
-        audio_for_sr = audio_segment.set_frame_rate(16000).set_channels(1)
-
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            audio_for_sr.export(tmp.name, format="wav")
+            tmp.write(wav_bytes)
             tmp_path = tmp.name
 
         recognizer = sr.Recognizer()
