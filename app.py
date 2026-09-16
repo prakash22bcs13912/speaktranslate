@@ -41,7 +41,7 @@ if audio and audio["id"] != st.session_state.last_audio_id:
 
     st.audio(audio["bytes"])
 
-    audio_segment = AudioSegment.from_file(io.BytesIO(audio["bytes"]))
+    audio_segment = AudioSegment.from_file(io.BytesIO(audio["bytes"]), format="wav")
 
     samples = np.array(audio_segment.get_array_of_samples())
 
